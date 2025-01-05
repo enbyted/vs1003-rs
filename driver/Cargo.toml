@@ -1,0 +1,16 @@
+[package]
+name = "vs1003-driver"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Bartosz Grabias"]
+
+[features]
+"defmt-03" = ["dep:defmt", "embedded-hal/defmt-03", "vs1003-pac/defmt-03"]
+
+[dependencies]
+defmt = { version = "0.3", default-features = false, optional = true }
+embedded-hal = { version = "1.0.0", default-features = false }
+fugit = { version = "0.3.7", default-features = false }
+thiserror = { version = "2.0.9", default-features = false }
+vs1003-pac = { path = "../pac" }

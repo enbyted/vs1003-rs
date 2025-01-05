@@ -1,0 +1,3 @@
+[workspace]
+members = ["pac", "driver", "demo"]
+resolver = "2"
