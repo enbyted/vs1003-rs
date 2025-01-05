@@ -45,7 +45,7 @@ where
 {
     /// Check if the device can accept commands or data
     pub fn is_busy(&mut self) -> Result<bool, TDreq::Error> {
-        return self.dreq.is_low();
+        self.dreq.is_low()
     }
 }
 
@@ -169,7 +169,7 @@ where
     ///
     /// Other functions may fail with [`Vs1003InterfaceError::Busy`] if this returns `Ok(false)`
     pub fn is_busy(&mut self) -> Result<bool, TDreq::Error> {
-        return self.interface.is_busy();
+        self.interface.is_busy()
     }
 }
 
@@ -344,6 +344,7 @@ device_driver::create_device!(
             ///
             /// This is due to a bug in the system firmware in VS1003b.
             stereo: bool = 0,
+            sample_rate: uint = 1..16,
         },
         /// Wram is used to upload application programs and data to instruction and data RAMs.
         /// The start address must be initialized by writing to WramAddr prior to the first write/read

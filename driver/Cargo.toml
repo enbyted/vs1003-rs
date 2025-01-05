@@ -6,7 +6,12 @@ license = "MIT OR Apache-2.0"
 authors = ["Bartosz Grabias"]
 
 [features]
-"defmt-03" = ["dep:defmt", "embedded-hal/defmt-03", "vs1003-pac/defmt-03"]
+"defmt-03" = [
+    "dep:defmt",
+    "embedded-hal/defmt-03",
+    "vs1003-pac/defmt-03",
+    "fugit/defmt",
+]
 
 [dependencies]
 defmt = { version = "0.3", default-features = false, optional = true }

@@ -7,7 +7,7 @@
 
 pub use vs1003_pac as pac;
 
-use embedded_hal::{digital::OutputPin as _, spi::SpiDevice};
+use embedded_hal::{delay::DelayNs, digital::OutputPin as _, spi::SpiDevice};
 use fugit::ExtU32;
 
 /// Contains all peripherals required to interface with VS1003
@@ -112,6 +112,22 @@ impl<ESci, ESdi, EDreq, ERst> From<pac::Vs1003InterfaceError<ESci, EDreq>>
     }
 }
 
+#[derive(thiserror::Error)]
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+/// The error returned by [Vs1003] APIs that change the typesate
+pub struct ModeChangeError<T: Vs1003Peripherals> {
+    /// The actual error
+    pub error: T::Error,
+    /// The device, so that it can be reset
+    pub device: Vs1003<Errored, T>,
+}
+impl<T: Vs1003Peripherals> core::fmt::Debug for ModeChangeError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Too bad we can't provide different debug output depending on whether Vs1003<Errored, T> is Debug or not :(
+        f.debug_tuple("ModeChangeError").field(&self.error).finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
 #[repr(u8)]
@@ -173,12 +189,31 @@ pub enum RecordingGain {
     Manual(core::num::NonZeroU16),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
+/// Specifies whether to use a high-pass filter for recording or not
+pub enum RecordingFilter {
+    /// No filtering of lower-band
+    NoFilter,
+    /// ~300Hz high pass filter.
+    ///
+    /// Note that the datasheet says that this is only usable with 8kHz sample rate.
+    HighPass,
+}
+
 /// Typestate type for freshly constructed VS1003
 #[derive(Debug)]
-pub struct NotInitialized;
+#[non_exhaustive]
+pub struct NotInitialized {}
+
+/// Typestate type for a VS1003 that failed state change
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Errored {}
 
 /// Typestate type for freshly reset VS1003
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Initialized {
     /// The internal clock speed
     internal_clock: fugit::KilohertzU32,
@@ -186,7 +221,8 @@ pub struct Initialized {
 
 /// Typestate type for VS1003 in standard recording mode
 #[derive(Debug)]
-pub struct AdpcmRecording;
+#[non_exhaustive]
+pub struct AdpcmRecording {}
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
@@ -212,7 +248,7 @@ impl<T: Vs1003Peripherals> Vs1003<NotInitialized, T> {
             sci: pac::Vs1003::new(pac::Vs1003Interface::new(sci, dreq)),
             sdi,
             xrst,
-            state: NotInitialized,
+            state: NotInitialized {},
         }
     }
 }
@@ -230,7 +266,7 @@ impl<State, T: Vs1003Peripherals> Vs1003<State, T> {
     ///
     /// # Blocking
     ///
-    /// This method may block for up to 50ms, assuming that `delay.delay_us(10)` blocks for 10us.
+    /// This method may block for up to 50ms, assuming that `delay.delay_us(10)` blocks for 10us and a reasonable SPI clock speed.
     ///
     /// # Panics
     ///
@@ -238,11 +274,11 @@ impl<State, T: Vs1003Peripherals> Vs1003<State, T> {
     /// of legal range for VS1003.
     pub fn reset_initialize(
         mut self,
-        delay: &mut impl embedded_hal::delay::DelayNs,
+        delay: &mut impl DelayNs,
         xtali: fugit::KilohertzU32,
         base_multiplier: ClockMultiplier,
         wma_boost: ClockBoost,
-    ) -> Result<Vs1003<Initialized, T>, T::Error> {
+    ) -> Result<Vs1003<Initialized, T>, ModeChangeError<T>> {
         let xtali_4k: u32 = xtali.to_kHz() / 4;
         assert!(xtali_4k > 2_000, "Provided frequency is too low!");
         let clock_input = xtali_4k - 2_000;
@@ -265,35 +301,49 @@ impl<State, T: Vs1003Peripherals> Vs1003<State, T> {
             }
             / 2;
 
-        self.xrst.set_low().map_err(Error::RstWrite)?;
-        delay.delay_us(100);
-        self.xrst.set_high().map_err(Error::RstWrite)?;
+        let mut do_reset = move |dev: &mut Self| -> Result<(), T::Error> {
+            dev.xrst.set_low().map_err(Error::RstWrite)?;
+            delay.delay_us(100);
+            dev.xrst.set_high().map_err(Error::RstWrite)?;
+            delay.delay_ms(5);
+            // According to datasheet the maximum reset time is 50000 clock cycles
+            // At 12MHz this is ~4.2ms, at 8MHz it would be 6.25ms
+            // Thus 10ms seems like a good timeout to use
+            dev.wait_for_dreq(delay, 10.millis())?;
 
-        // According to datasheet the maximum reset time is 50000 clock cycles
-        // At 12MHz this is ~4.2ms, at 8MHz it would be 6.25ms
-        // Thus 10ms seems like a good timeout to use
-        self.wait_for_dreq(delay, 10.millis())?;
+            dev.sci()
+                .clockf()
+                .modify(move |r| {
+                    r.set_multiplier(base_multiplier as u8);
+                    r.set_allowed_addition(wma_boost as u8);
+                    r.set_input_frequency(clock_input);
+                })
+                .map_err(Error::from)?;
 
-        self.sci()
-            .clockf()
-            .modify(move |r| {
-                r.set_multiplier(base_multiplier as u8);
-                r.set_allowed_addition(wma_boost as u8);
-                r.set_input_frequency(clock_input);
-            })
-            .map_err(Error::from)?;
+            // Datasheet specifies maximum execution time of 11000 clock cycles
+            // At 12MHz this is ~1ms, at 12 MHz ~1.4ms.
+            // Thus 5ms timeout seems like a good compromise
+            dev.wait_for_dreq(delay, 5.millis())?;
+            Ok(())
+        };
 
-        // Datasheet specifies maximum execution time of 11000 clock cycles
-        // At 12MHz this is ~1ms, at 12 MHz ~1.4ms.
-        // Thus 5ms timeout seems like a good compromise
-        self.wait_for_dreq(delay, 5.millis())?;
-
-        Ok(Vs1003 {
-            sci: self.sci,
-            sdi: self.sdi,
-            xrst: self.xrst,
-            state: Initialized { internal_clock },
-        })
+        match do_reset(&mut self) {
+            Err(error) => Err(ModeChangeError {
+                error,
+                device: Vs1003 {
+                    sci: self.sci,
+                    sdi: self.sdi,
+                    xrst: self.xrst,
+                    state: Errored {},
+                },
+            }),
+            Ok(_) => Ok(Vs1003 {
+                sci: self.sci,
+                sdi: self.sdi,
+                xrst: self.xrst,
+                state: Initialized { internal_clock },
+            }),
+        }
     }
 
     /// Proxy for [pac::Vs1003::is_busy].
@@ -326,6 +376,15 @@ impl<State, T: Vs1003Peripherals> Vs1003<State, T> {
 
         Err(Error::Timeout(max_delay))?
     }
+
+    fn change_state<NewState>(self, state: NewState) -> Vs1003<NewState, T> {
+        Vs1003 {
+            sci: self.sci,
+            sdi: self.sdi,
+            xrst: self.xrst,
+            state,
+        }
+    }
 }
 
 impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
@@ -335,6 +394,10 @@ impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
     ///
     /// The actual sample rate may differ from requested due to divider resolution.
     ///
+    /// # Blocking
+    ///
+    /// This method may block for up to 25ms, assuming that `delay.delay_us(10)` blocks for 10us and a reasonable SPI clock speed.
+    ///
     /// # Panics
     ///
     /// This call will panic if the requested rate is higher than can be achieved with the configured clock.
@@ -342,17 +405,77 @@ impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
     ///
     /// This
     pub fn begin_adpcm_recording(
-        self,
+        mut self,
+        delay: &mut impl DelayNs,
         sample_rate: fugit::HertzU32,
         input: RecordingInput,
         gain: RecordingGain,
-    ) -> Vs1003<AdpcmRecording, T> {
-        let divider = self.state.internal_clock.to_Hz() / (256 * sample_rate.to_Hz());
+        filter: RecordingFilter,
+    ) -> Result<Vs1003<AdpcmRecording, T>, ModeChangeError<T>> {
+        let divider = self
+            .state
+            .internal_clock
+            .to_Hz()
+            .div_ceil(256 * sample_rate.to_Hz());
+        defmt::info!(
+            "Sample rate: {:?}, clock: {:?}, divider: {}",
+            sample_rate,
+            self.state.internal_clock,
+            divider
+        );
         assert!(
             divider >= 4,
             "Requested sample rate is too high for provided clock"
         );
-        todo!();
+        let mut do_change = move |dev: &mut Self| -> Result<(), T::Error> {
+            // AICTRL0 is the divider
+            dev.sci
+                .ai_ctrl(0)
+                .write(|r| r.set_value(divider as u16))
+                .map_err(Error::from)?;
+
+            dev.wait_for_dreq(delay, 500.micros())?;
+
+            // AICTRL1 is the gain
+            dev.sci
+                .ai_ctrl(1)
+                .write(|r| {
+                    r.set_value(match gain {
+                        RecordingGain::Auto => 0,
+                        RecordingGain::Manual(non_zero) => non_zero.get(),
+                    })
+                })
+                .map_err(Error::from)?;
+
+            dev.wait_for_dreq(delay, 500.micros())?;
+
+            // For VS1033 AICTRL2 is the maximum gain in AGC mode. We won't write to it here, so that
+            // the user may set it before calling us. The default of 0 is maximum of 64x, which is what VS1003 implements.
+
+            dev.sci
+                .mode()
+                .modify(|r| {
+                    r.set_reset(true);
+                    r.set_adpcm(true);
+                    r.set_adpcm_hp(matches!(filter, RecordingFilter::HighPass));
+                    r.set_adpcm_input(match input {
+                        RecordingInput::LineIn => pac::AdpcmInput::LineIn,
+                        RecordingInput::Microphone => pac::AdpcmInput::Microphone,
+                    });
+                })
+                .map_err(Error::from)?;
+
+            dev.wait_for_dreq(delay, 10.millis())?;
+            Ok(())
+        };
+
+        match do_change(&mut self) {
+            Err(error) => Err(ModeChangeError {
+                error,
+                device: self.change_state(Errored {}),
+            }),
+            Ok(_) => Ok(self.change_state(AdpcmRecording {})),
+        }
     }
 
     /// Write audio file data to the device. This will send as much data as the device will accept
@@ -369,7 +492,7 @@ impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
 
         let mut remaining = buffer;
 
-        while remaining.len() > 0 {
+        while !remaining.is_empty() {
             let (taken, leftover) = remaining.split_at(CHUNK_SIZE.min(remaining.len()));
             remaining = leftover;
 
@@ -382,5 +505,19 @@ impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
         }
 
         Ok(buffer.len() - remaining.len())
+    }
+
+    /// Changes the typestate to errored.
+    /// Can be useful for simplification of retry loops.
+    pub fn into_errored_state(self) -> Vs1003<Errored, T> {
+        self.change_state(Errored {})
+    }
+}
+
+impl<T: Vs1003Peripherals> Vs1003<AdpcmRecording, T> {
+    /// Changes the typestate to errored.
+    /// Can be useful for simplification of retry loops.
+    pub fn into_errored_state(self) -> Vs1003<Errored, T> {
+        self.change_state(Errored {})
     }
 }
