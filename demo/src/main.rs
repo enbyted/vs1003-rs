@@ -343,7 +343,7 @@ fn main() -> ! {
         // First - record data
         info!("Recording");
         led_pin.set_high().unwrap();
-        let mut buffer = BytesMut::from(&mut record_buffer[60..]);
+        let mut buffer = &mut record_buffer[60..];
 
         while let Ok(true) = dev.is_busy() {}
         let mut record_dev = dev
@@ -357,17 +357,15 @@ fn main() -> ! {
             .unwrap();
 
         while buffer.len() >= 256 {
-            while let Ok(true) = record_dev.is_busy() {}
-
-            let available_words = record_dev.sci().hdat_1().read().unwrap().value();
-            if available_words >= 128 {
-                for _ in 0..128 {
-                    while let Ok(true) = record_dev.is_busy() {}
-                    let sample = record_dev.sci().hdat_0().read().unwrap().value();
-                    buffer.put(sample.to_be_bytes());
-                }
-            }
-            delay.delay_us(5);
+            let written = record_dev
+                .read_samples_bytes(&mut delay, &mut buffer[..256])
+                .or_else(|err| match err {
+                    vs1003_driver::Error::Busy => Ok(0),
+                    other => Err(other),
+                })
+                .unwrap();
+            assert!(matches!(written, 256 | 0));
+            buffer = &mut buffer[written..];
         }
 
         let used_buffer = RECORD_BUFFER_SIZE - buffer.len();

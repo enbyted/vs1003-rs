@@ -520,4 +520,65 @@ impl<T: Vs1003Peripherals> Vs1003<AdpcmRecording, T> {
     pub fn into_errored_state(self) -> Vs1003<Errored, T> {
         self.change_state(Errored {})
     }
+
+    /// Checks how many samples are ready to be read.
+    ///
+    /// The internal buffer has size of 1024 words, so that is the maximum value you can read.
+    /// The datasheet recommends to not attempt reading if you see a value >= 896 to avoid block aliasing.
+    pub fn get_ready_sample_count(&mut self) -> Result<usize, T::Error> {
+        self.sci
+            .hdat_1()
+            .read()
+            .map(|v| v.value() as usize)
+            .map_err(Error::from)
+            .map_err(Into::into)
+    }
+
+    /// Read however many samples the device has into the buffer.
+    /// Returns the number of words read.
+    ///
+    /// If you convert these sample to u8 buffers later then remeber that they need to be stored
+    /// as big endian i.e. 0x1234 => 0x12 0x34 as these are not raw 16-bit samples, but rather 4, 4-bit values
+    /// stored as one.
+    ///
+    /// Delay is needed to have an upper bound when waiting for DREQ signal.
+    ///
+    /// It is advised to always read whole blocks (128 words), so that you do not loose
+    /// block synchronization. It is much better to drop a block as the compression scheme
+    /// relies on blocks.
+    ///
+    /// The device always puts whole blocks into the buffer.
+    pub fn read_samples(
+        &mut self,
+        delay: &mut impl DelayNs,
+        buffer: &mut [u16],
+    ) -> Result<usize, T::Error> {
+        let total_samples = self.get_ready_sample_count()?.min(buffer.len());
+        for sample in &mut buffer[0..total_samples] {
+            self.wait_for_dreq(delay, 100.micros())?;
+            *sample = self.sci.hdat_0().read().map_err(Error::from)?.value();
+        }
+
+        Ok(total_samples)
+    }
+
+    /// Same as [Self::read_samples], but takes a u8 buffer instead of u16.
+    /// Returns the number of bytes read (always a multiple of 2).
+    ///
+    /// See the other method for additional information.
+    pub fn read_samples_bytes(
+        &mut self,
+        delay: &mut impl DelayNs,
+        buffer: &mut [u8],
+    ) -> Result<usize, T::Error> {
+        let total_samples = self.get_ready_sample_count()?.min(buffer.len() / 2);
+        for i in 0..total_samples {
+            self.wait_for_dreq(delay, 100.micros())?;
+            let sample = self.sci.hdat_0().read().map_err(Error::from)?.value();
+            let offset = i * 2;
+            buffer[offset..=offset + 1].copy_from_slice(&sample.to_be_bytes());
+        }
+
+        Ok(total_samples * 2)
+    }
 }
