@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Bartosz Grabias"]
 categories = ["embedded", "no-std", "hardware-support"]
 description = "VS1003 audio codec peripheral access crate"
+repository = "https://github.com/enbyted/vs1003-rs"
 
 [features]
 defmt-03 = [
