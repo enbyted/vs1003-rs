@@ -1,4 +1,6 @@
-//! TODO: Write some docs
+//! A high-level driver for VS1003 audio codec.
+//!
+//! TODO: Provide better description
 //!
 
 #![no_std]

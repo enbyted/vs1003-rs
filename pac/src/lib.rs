@@ -2,7 +2,14 @@
 #![warn(missing_debug_implementations)]
 #![warn(missing_docs)]
 
-//! The low-level peripheral access definitions.
+//! The low-level peripheral access definitions for VS1003 codec.
+//! Some of those definition may also work for other chips in the family, however
+//! there are some incompatible changes between them.
+//!
+//! Each method checks the DREQ pin and if it is low it will return [`Vs1003InterfaceError::Busy`] if so.
+//! Please note though, that the device may not lower this pin immediately after a successful transfer.
+//! This time doesn't seem well-specified, however on the forums they seem to recommend a 1us delay after
+//! completion of a command and before checking the DREQ pin.
 
 #[derive(Debug, Clone)]
 /// The necessary interfaces to communicate with a VS1003 chip.
@@ -162,7 +169,6 @@ where
 
 impl<TCsi, TDreq> Vs1003<Vs1003Interface<TCsi, TDreq>>
 where
-    TCsi: embedded_hal::spi::SpiDevice<u8>,
     TDreq: embedded_hal::digital::InputPin,
 {
     /// Check if the device is ready to accept commands or data
@@ -170,6 +176,16 @@ where
     /// Other functions may fail with [`Vs1003InterfaceError::Busy`] if this returns `Ok(false)`
     pub fn is_busy(&mut self) -> Result<bool, TDreq::Error> {
         self.interface.is_busy()
+    }
+}
+
+impl<TCsi, TDreq> Vs1003<Vs1003Interface<TCsi, TDreq>>
+where
+    TDreq: embedded_hal::digital::InputPin + embedded_hal_async::digital::Wait,
+{
+    /// Asynchronously waits until the device is ready to accept commands and data
+    pub async fn wait_until_ready(&mut self) -> Result<(), TDreq::Error> {
+        self.interface.dreq.wait_for_high().await
     }
 }
 
@@ -181,7 +197,7 @@ device_driver::create_device!(
             type DefaultByteOrder = BE;
             type DefmtFeature = "defmt-03";
         }
-        /// d
+        /// The SCI_MODE register - controls various aspects of operation of the VS1003
         register Mode {
             const ADDRESS = 0x0;
             const SIZE_BITS = 16;
@@ -241,7 +257,7 @@ device_driver::create_device!(
                 LineIn = 1,
             } = 14..=14,
         },
-        /// d
+        /// The SCI_STATUS register
         register Status {
             const ADDRESS = 0x1;
             const SIZE_BITS = 16;
@@ -252,8 +268,10 @@ device_driver::create_device!(
                 Vs1011 = 1,
                 Vs1002 = 2,
                 Vs1003 = 3,
+                Vs1053 = 5,
+                Vs1063 = 6,
                 Unknown = catch_all
-            } = 4..=6,
+            } = 4..=7,
 
             /// Controls the analog driver powerdown.
             /// Normally controlled by the system firmware, however
@@ -295,6 +313,7 @@ device_driver::create_device!(
             /// system can reproduce.
             bass_bottom_frequency: uint = 0..=3,
         },
+        /// Register responsible for controlling the clock settings
         register Clockf {
             const ADDRESS = 0x3;
             const SIZE_BITS = 16;

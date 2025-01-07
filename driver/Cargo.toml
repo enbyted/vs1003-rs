@@ -1,9 +1,11 @@
 [package]
 name = "vs1003-driver"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Bartosz Grabias"]
+categories = ["embedded", "no-std", "hardware-support"]
+description = "VS1003 audio codec device driver"
 
 [features]
 "defmt-03" = [
@@ -18,4 +20,4 @@ defmt = { version = "0.3", default-features = false, optional = true }
 embedded-hal = { version = "1.0.0", default-features = false }
 fugit = { version = "0.3.7", default-features = false }
 thiserror = { version = "2.0.9", default-features = false }
-vs1003-pac = { path = "../pac" }
+vs1003-pac = { path = "../pac", version = "0.1.0" }

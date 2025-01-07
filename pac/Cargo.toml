@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Bartosz Grabias"]
+categories = ["embedded", "no-std", "hardware-support"]
+description = "VS1003 audio codec peripheral access crate"
 
 [features]
 defmt-03 = [

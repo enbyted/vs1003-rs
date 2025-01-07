@@ -31,7 +31,10 @@ embedded-hal-bus = { version = "0.2.0", features = ["defmt-03"] }
 critical-section = "1.2.0"
 portable-atomic = { version = "1.10.0", features = ["critical-section"] }
 fugit = { version = "0.3.7", features = ["defmt"] }
-once_cell = { version = "1.20.2", default-features = false, features = ["critical-section", "portable-atomic"] }
+once_cell = { version = "1.20.2", default-features = false, features = [
+    "critical-section",
+    "portable-atomic",
+] }
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.8"
