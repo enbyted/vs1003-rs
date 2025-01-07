@@ -419,12 +419,6 @@ impl<T: Vs1003Peripherals> Vs1003<Initialized, T> {
             .internal_clock
             .to_Hz()
             .div_ceil(256 * sample_rate.to_Hz());
-        defmt::info!(
-            "Sample rate: {:?}, clock: {:?}, divider: {}",
-            sample_rate,
-            self.state.internal_clock,
-            divider
-        );
         assert!(
             divider >= 4,
             "Requested sample rate is too high for provided clock"
