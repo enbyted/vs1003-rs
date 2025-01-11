@@ -197,10 +197,27 @@ device_driver::create_device!(
             type DefaultByteOrder = BE;
             type DefmtFeature = "defmt-03";
         }
+        /// Access any register to read or write a custom value.
+        ///
+        /// This is especially useful when uploading plugins as they are specified in
+        /// register address + value to write format.
+        register Raw {
+            const ADDRESS = 0x1;
+            const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
+            const REPEAT = {
+                count: 16,
+                stride: 1,
+            };
+
+            /// The value
+            value: uint = 0..16,
+        },
         /// The SCI_MODE register - controls various aspects of operation of the VS1003
         register Mode {
             const ADDRESS = 0x0;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// If true invert left channel for differential output
             differential: bool = 0,
@@ -261,6 +278,7 @@ device_driver::create_device!(
         register Status {
             const ADDRESS = 0x1;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The connected device
             version: uint as enum Version {
@@ -293,6 +311,7 @@ device_driver::create_device!(
         register Bass {
             const ADDRESS = 0x2;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// Treble control in 1.5 dB steps.
             /// Set to 0 to disable.
@@ -317,6 +336,7 @@ device_driver::create_device!(
         register Clockf {
             const ADDRESS = 0x3;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// CLKI multiplier.
             ///
@@ -347,6 +367,7 @@ device_driver::create_device!(
         register DecodeTime {
             const ADDRESS = 0x4;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The current decode time in seconds.
             value: uint = 0..16,
@@ -357,6 +378,7 @@ device_driver::create_device!(
         register Audata {
             const ADDRESS = 0x5;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// If the sample rate is even: true = stereo, false = mono
             /// If the sample rate is odd: true = mono, false = stereo
@@ -374,6 +396,7 @@ device_driver::create_device!(
         register Wram {
             const ADDRESS = 0x6;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             value: uint = 0..16,
         },
@@ -385,6 +408,7 @@ device_driver::create_device!(
 
             const ADDRESS = 0x7;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The read/write pointer
             value: uint = 0..16,
@@ -396,6 +420,7 @@ device_driver::create_device!(
 
             const ADDRESS = 0x8;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The value
             value: uint = 0..16,
@@ -407,6 +432,7 @@ device_driver::create_device!(
 
             const ADDRESS = 0x9;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The value
             value: uint = 0..16,
@@ -418,6 +444,7 @@ device_driver::create_device!(
         register AiAddr {
             const ADDRESS = 0xA;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// The application start pointer.
             value: uint = 0..16,
@@ -428,6 +455,7 @@ device_driver::create_device!(
         register Vol {
             const ADDRESS = 0xB;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
 
             /// Right channel volume in -0.5 dB steps.
             /// 0 = 0 dB, 254 = -127 dB
@@ -441,6 +469,7 @@ device_driver::create_device!(
         register AiCtrl {
             const ADDRESS = 0xC;
             const SIZE_BITS = 16;
+            const ALLOW_ADDRESS_OVERLAP = true;
             const REPEAT = {
                 count: 4,
                 stride: 1,
